@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weather Station — Live Atmospheric Readout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink-navy:#0B1D26;
+    --panel:#122E3B;
+    --panel-2:#0E2530;
+    --line:#1E4756;
+    --line-soft:#183A47;
+    --paper:#EDEDE2;
+    --paper-dim:#9FB3B9;
+    --amber:#E8A33D;
+    --amber-dim:#7A5A28;
+    --teal:#4FB8C4;
+    --teal-dim:#295A61;
+    --danger:#E0684B;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--ink-navy);
+    color:var(--paper);
+    font-family:'Space Grotesk', sans-serif;
+    min-height:100vh;
+    position:relative;
+    overflow-x:hidden;
+  }
+  /* isobar contour background */
+  .isobars{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    opacity:.5;
+  }
+  .app{
+    position:relative; z-index:1;
+    max-width:920px;
+    margin:0 auto;
+    padding:36px 20px 60px;
+  }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+
+  /* header */
+  header{ margin-bottom:28px; }
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:.28em;
+    text-transform:uppercase;
+    color:var(--teal);
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .eyebrow::before{
+    content:"";
+    width:7px;height:7px;border-radius:50%;
+    background:var(--teal);
+    box-shadow:0 0 8px var(--teal);
+  }
+  h1{
+    font-size:clamp(28px,5vw,42px);
+    margin:0 0 8px;
+    font-weight:700;
+    letter-spacing:-0.01em;
+  }
+  .sub{
+    color:var(--paper-dim);
+    font-size:14.5px;
+    line-height:1.5;
+    max-width:520px;
+  }
+
+  /* search */
+  .search-bar{
+    margin-top:24px;
+    display:flex;
+    gap:10px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:6px;
+  }
+  .search-bar input{
+    flex:1;
+    background:transparent;
+    border:none;
+    outline:none;
+    color:var(--paper);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:15px;
+    padding:12px 14px;
+  }
+  .search-bar input::placeholder{ color:#5C7680; }
+  .search-bar button{
+    background:var(--amber);
+    color:#221604;
+    border:none;
+    border-radius:6px;
+    padding:0 22px;
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    font-size:14.5px;
+    cursor:pointer;
+    transition:filter .15s ease, transform .1s ease;
+  }
+  .search-bar button:hover{ filter:brightness(1.08); }
+  .search-bar button:active{ transform:scale(.97); }
+  .search-bar button:disabled{ opacity:.55; cursor:progress; }
+
+  .hint-row{
+    margin-top:10px;
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .chip{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--paper-dim);
+    border:1px solid var(--line);
+    background:var(--panel-2);
+    padding:6px 11px;
+    border-radius:20px;
+    cursor:pointer;
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .chip:hover{ border-color:var(--teal); color:var(--paper); }
+
+  /* status */
+  #status{ margin-top:18px; min-height:0; }
+  .status-panel{
+    border-radius:10px;
+    padding:14px 16px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:13px;
+    line-height:1.6;
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+  }
+  .status-panel.error{
+    background:rgba(224,104,75,.08);
+    border:1px solid rgba(224,104,75,.4);
+    color:#F2B7A5;
+  }
+  .status-panel.loading{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--teal);
+  }
+  .spinner{
+    width:14px;height:14px;border-radius:50%;
+    border:2px solid var(--line-soft);
+    border-top-color:var(--teal);
+    animation:spin .8s linear infinite;
+    flex-shrink:0;
+    margin-top:1px;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  /* empty state */
+  .empty{
+    margin-top:60px;
+    text-align:center;
+    color:var(--paper-dim);
+    padding:50px 20px;
+    border:1px dashed var(--line);
+    border-radius:14px;
+  }
+  .empty .glyph{ font-size:34px; margin-bottom:10px; opacity:.7; }
+  .empty p{ font-family:'IBM Plex Mono', monospace; font-size:13px; margin:6px 0 0; }
+
+  /* dashboard */
+  #dashboard{ margin-top:30px; display:none; }
+  #dashboard.visible{ display:block; animation:rise .5s ease; }
+  @keyframes rise{ from{ opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+
+  .hero{
+    background:linear-gradient(155deg, var(--panel) 0%, var(--panel-2) 100%);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:32px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:24px;
+    flex-wrap:wrap;
+    position:relative;
+    overflow:hidden;
+  }
+  .hero::after{
+    content:"";
+    position:absolute; right:-60px; top:-60px;
+    width:220px; height:220px; border-radius:50%;
+    background:radial-gradient(circle, rgba(232,163,61,.14), transparent 70%);
+  }
+  .hero-left{ position:relative; z-index:1; }
+  .place{
+    font-size:22px;
+    font-weight:600;
+    margin:0 0 2px;
+  }
+  .place-meta{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--paper-dim);
+    letter-spacing:.03em;
+  }
+  .temp-row{
+    display:flex;
+    align-items:flex-end;
+    gap:14px;
+    margin-top:18px;
+  }
+  .temp-big{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:76px;
+    line-height:.85;
+    font-weight:600;
+    color:var(--amber);
+    letter-spacing:-.02em;
+  }
+  .temp-unit{ font-size:32px; vertical-align:top; }
+  .cond-block{ padding-bottom:10px; }
+  .cond-label{ font-size:16px; font-weight:500; }
+  .feels{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    color:var(--paper-dim);
+    margin-top:3px;
+  }
+  .hero-icon{ position:relative; z-index:1; flex-shrink:0; }
+
+  /* metrics grid */
+  .metrics{
+    margin-top:18px;
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:14px;
+  }
+  @media (max-width:760px){ .metrics{ grid-template-columns:repeat(2,1fr); } }
+
+  .metric{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:18px 16px;
+    position:relative;
+  }
+  .metric-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--paper-dim);
+    margin-bottom:10px;
+  }
+  .metric-value{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:26px;
+    font-weight:600;
+    color:var(--paper);
+  }
+  .metric-value span{ font-size:14px; color:var(--paper-dim); font-weight:400; }
+  .metric-sub{ font-size:11.5px; color:var(--teal); margin-top:4px; font-family:'IBM Plex Mono', monospace; }
+
+  /* compass */
+  .compass-wrap{ display:flex; align-items:center; gap:14px; }
+  .compass{ width:58px; height:58px; flex-shrink:0; }
+  .compass .arrow{ transform-origin:29px 29px; transition:transform .6s cubic-bezier(.4,1.4,.5,1); }
+
+  footer{
+    margin-top:34px;
+    display:flex;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color:#4C6771;
+    border-top:1px solid var(--line-soft);
+    padding-top:16px;
+  }
+  a{ color:var(--teal); }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.001s !important; transition-duration:.001s !important; }
+  }
+</style>
+</head>
+<body>
+
+<svg class="isobars" preserveAspectRatio="none" viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="iso" cx="18%" cy="8%" r="90%">
+      <stop offset="0%" stop-color="#1E4756" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1E4756" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g fill="none" stroke="#1C4451" stroke-width="1">
+    <path d="M -100 250 C 200 150, 500 350, 1100 180"/>
+    <path d="M -100 330 C 200 240, 500 430, 1100 260"/>
+    <path d="M -100 410 C 200 330, 500 510, 1100 340"/>
+    <path d="M -100 700 C 300 620, 600 820, 1100 680"/>
+    <path d="M -100 780 C 300 710, 600 900, 1100 760"/>
+  </g>
+</svg>
+
+<div class="app">
+  <header>
+    <div class="eyebrow">Station Online</div>
+    <h1>Weather Station</h1>
+    <p class="sub">A live atmospheric readout, pulled straight from open weather sensors worldwide. Search any city to bring its station data online.</p>
+
+    <form class="search-bar" id="searchForm">
+      <input type="text" id="cityInput" class="mono" placeholder="Search a city — e.g. Lisbon, Tokyo, Nairobi" autocomplete="off" />
+      <button type="submit" id="searchBtn">Locate</button>
+    </form>
+    <div class="hint-row" id="hintRow">
+      <span class="chip" data-city="New Delhi">New Delhi</span>
+      <span class="chip" data-city="London">London</span>
+      <span class="chip" data-city="Tokyo">Tokyo</span>
+      <span class="chip" data-city="New York">New York</span>
+      <span class="chip" data-city="Cape Town">Cape Town</span>
+    </div>
+
+    <div id="status"></div>
+  </header>
+
+  <div class="empty" id="emptyState">
+    <div class="glyph">◌</div>
+    <div>No station tuned in yet</div>
+    <p>Search for a city above to bring its readout online.</p>
+  </div>
+
+  <main id="dashboard">
+    <section class="hero">
+      <div class="hero-left">
+        <p class="place" id="placeName">—</p>
+        <p class="place-meta" id="placeMeta">—</p>
+        <div class="temp-row">
+          <div class="temp-big" id="tempBig">--<span class="temp-unit">°C</span></div>
+          <div class="cond-block">
+            <div class="cond-label" id="condLabel">—</div>
+            <div class="feels" id="feelsLike">Feels like —</div>
+          </div>
+        </div>
+      </div>
+      <div class="hero-icon" id="heroIcon"></div>
+    </section>
+
+    <section class="metrics">
+      <div class="metric">
+        <div class="metric-label">Humidity</div>
+        <div class="metric-value" id="humidityVal">-- <span>%</span></div>
+        <div class="metric-sub" id="humiditySub">—</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Wind</div>
+        <div class="compass-wrap">
+          <svg class="compass" viewBox="0 0 58 58">
+            <circle cx="29" cy="29" r="26" fill="none" stroke="#295A61" stroke-width="1.5"/>
+            <text x="29" y="9" fill="#9FB3B9" font-size="7" font-family="IBM Plex Mono" text-anchor="middle">N</text>
+            <text x="29" y="53" fill="#9FB3B9" font-size="7" font-family="IBM Plex Mono" text-anchor="middle">S</text>
+            <text x="5" y="32" fill="#9FB3B9" font-size="7" font-family="IBM Plex Mono" text-anchor="middle">W</text>
+            <text x="53" y="32" fill="#9FB3B9" font-size="7" font-family="IBM Plex Mono" text-anchor="middle">E</text>
+            <g class="arrow" id="windArrow">
+              <line x1="29" y1="29" x2="29" y2="10" stroke="#E8A33D" stroke-width="2.5" stroke-linecap="round"/>
+              <polygon points="29,6 24,16 34,16" fill="#E8A33D"/>
+            </g>
+          </svg>
+          <div>
+            <div class="metric-value" id="windVal">-- <span>km/h</span></div>
+            <div class="metric-sub" id="windDir">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Pressure</div>
+        <div class="metric-value" id="pressureVal">-- <span>hPa</span></div>
+        <div class="metric-sub" id="pressureSub">—</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Precipitation</div>
+        <div class="metric-value" id="precipVal">-- <span>mm</span></div>
+        <div class="metric-sub" id="precipSub">—</div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Data: Open-Meteo.com — no API key required</span>
+    <span id="lastUpdated"></span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const form = document.getElementById('searchForm');
+  const input = document.getElementById('cityInput');
+  const btn = document.getElementById('searchBtn');
+  const statusBox = document.getElementById('status');
+  const dashboard = document.getElementById('dashboard');
+  const emptyState = document.getElementById('emptyState');
+  const hintRow = document.getElementById('hintRow');
+
+  const GEO_URL = 'https://geocoding-api.open-meteo.com/v1/search';
+  const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast';
+
+  // WMO weather code -> label + icon key
+  const WEATHER_CODES = {
+    0:  ['Clear sky', 'sun'],
+    1:  ['Mainly clear', 'sun-cloud'],
+    2:  ['Partly cloudy', 'sun-cloud'],
+    3:  ['Overcast', 'cloud'],
+    45: ['Fog', 'fog'],
+    48: ['Depositing rime fog', 'fog'],
+    51: ['Light drizzle', 'rain-light'],
+    53: ['Moderate drizzle', 'rain-light'],
+    55: ['Dense drizzle', 'rain-light'],
+    56: ['Freezing drizzle', 'rain-light'],
+    57: ['Freezing drizzle', 'rain-light'],
+    61: ['Slight rain', 'rain'],
+    63: ['Moderate rain', 'rain'],
+    65: ['Heavy rain', 'rain'],
+    66: ['Freezing rain', 'rain'],
+    67: ['Freezing rain', 'rain'],
+    71: ['Slight snow', 'snow'],
+    73: ['Moderate snow', 'snow'],
+    75: ['Heavy snow', 'snow'],
+    77: ['Snow grains', 'snow'],
+    80: ['Slight rain showers', 'rain'],
+    81: ['Moderate rain showers', 'rain'],
+    82: ['Violent rain showers', 'rain'],
+    85: ['Slight snow showers', 'snow'],
+    86: ['Heavy snow showers', 'snow'],
+    95: ['Thunderstorm', 'storm'],
+    96: ['Thunderstorm, slight hail', 'storm'],
+    99: ['Thunderstorm, heavy hail', 'storm'],
+  };
+
+  function iconSVG(key){
+    const icons = {
+      'sun': `<svg width="86" height="86" viewBox="0 0 86 86"><circle cx="43" cy="43" r="16" fill="#E8A33D"/><g stroke="#E8A33D" stroke-width="3" stroke-linecap="round">
+        <line x1="43" y1="8" x2="43" y2="18"/><line x1="43" y1="68" x2="43" y2="78"/>
+        <line x1="8" y1="43" x2="18" y2="43"/><line x1="68" y1="43" x2="78" y2="43"/>
+        <line x1="17" y1="17" x2="24" y2="24"/><line x1="62" y1="62" x2="69" y2="69"/>
+        <line x1="17" y1="69" x2="24" y2="62"/><line x1="62" y1="24" x2="69" y2="17"/>
+      </g></svg>`,
+      'sun-cloud': `<svg width="86" height="86" viewBox="0 0 86 86"><circle cx="33" cy="32" r="13" fill="#E8A33D"/>
+        <path d="M20 62 h34 a13 13 0 0 0 0-26 a17 17 0 0 0-33-4 a13 13 0 0 0-1 30z" fill="#4FB8C4" opacity=".85"/></svg>`,
+      'cloud': `<svg width="86" height="86" viewBox="0 0 86 86"><path d="M18 58 h44 a15 15 0 0 0 0-30 a20 20 0 0 0-38-4 a15 15 0 0 0-6 34z" fill="#7FA9B0"/></svg>`,
+      'fog': `<svg width="86" height="86" viewBox="0 0 86 86"><g stroke="#8FB4BA" stroke-width="4" stroke-linecap="round">
+        <line x1="14" y1="30" x2="72" y2="30"/><line x1="20" y1="43" x2="66" y2="43"/>
+        <line x1="14" y1="56" x2="72" y2="56"/></g></svg>`,
+      'rain-light': `<svg width="86" height="86" viewBox="0 0 86 86"><path d="M18 46 h40 a13 13 0 0 0 0-26 a17 17 0 0 0-33-3 a13 13 0 0 0-7 29z" fill="#7FA9B0"/>
+        <g stroke="#4FB8C4" stroke-width="3" stroke-linecap="round"><line x1="30" y1="58" x2="26" y2="70"/><line x1="45" y1="58" x2="41" y2="70"/><line x1="60" y1="58" x2="56" y2="70"/></g></svg>`,
+      'rain': `<svg width="86" height="86" viewBox="0 0 86 86"><path d="M18 44 h40 a13 13 0 0 0 0-26 a17 17 0 0 0-33-3 a13 13 0 0 0-7 29z" fill="#6E98A0"/>
+        <g stroke="#4FB8C4" stroke-width="3.5" stroke-linecap="round"><line x1="26" y1="56" x2="21" y2="72"/><line x1="40" y1="56" x2="35" y2="72"/><line x1="54" y1="56" x2="49" y2="72"/><line x1="66" y1="56" x2="62" y2="70"/></g></svg>`,
+      'snow': `<svg width="86" height="86" viewBox="0 0 86 86"><path d="M18 44 h40 a13 13 0 0 0 0-26 a17 17 0 0 0-33-3 a13 13 0 0 0-7 29z" fill="#7FA9B0"/>
+        <g fill="#EDEDE2"><circle cx="27" cy="64" r="2.6"/><circle cx="43" cy="70" r="2.6"/><circle cx="59" cy="64" r="2.6"/><circle cx="35" cy="58" r="2"/><circle cx="51" cy="58" r="2"/></g></svg>`,
+      'storm': `<svg width="86" height="86" viewBox="0 0 86 86"><path d="M18 40 h40 a13 13 0 0 0 0-26 a17 17 0 0 0-33-3 a13 13 0 0 0-7 29z" fill="#5C7F87"/>
+        <polygon points="46,50 34,68 42,68 36,82 56,60 46,60" fill="#E8A33D"/></svg>`,
+    };
+    return icons[key] || icons['cloud'];
+  }
+
+  function degToCompass(deg){
+    const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    return dirs[Math.round(deg / 22.5) % 16];
+  }
+
+  function setStatus(kind, message){
+    if (!kind){ statusBox.innerHTML = ''; return; }
+    if (kind === 'loading'){
+      statusBox.innerHTML = `<div class="status-panel loading"><div class="spinner"></div><div>${message}</div></div>`;
+    } else {
+      statusBox.innerHTML = `<div class="status-panel error"><div>⚠</div><div>${message}</div></div>`;
+    }
+  }
+
+  function setLoadingUI(isLoading){
+    btn.disabled = isLoading;
+    btn.textContent = isLoading ? 'Tuning in…' : 'Locate';
+  }
+
+  // Fetch coordinates for a given city name via Open-Meteo Geocoding API
+  async function geocodeCity(city){
+    const url = `${GEO_URL}?name=${encodeURIComponent(city)}&count=1&language=en&format=json`;
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (networkErr) {
+      throw new Error('Could not reach the geocoding service. Check your connection and try again.');
+    }
+    if (!res.ok){
+      throw new Error(`Geocoding service responded with an error (status ${res.status}).`);
+    }
+    const data = await res.json();
+    if (!data.results || data.results.length === 0){
+      throw new Error(`No station found for "${city}". Check the spelling, or try a nearby larger city.`);
+    }
+    return data.results[0];
+  }
+
+  // Fetch current weather for a given lat/lon via Open-Meteo Forecast API
+  async function fetchWeather(lat, lon){
+    const params = new URLSearchParams({
+      latitude: lat,
+      longitude: lon,
+      current: 'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m',
+      timezone: 'auto'
+    });
+    const url = `${WEATHER_URL}?${params.toString()}`;
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (networkErr) {
+      throw new Error('Could not reach the weather service. Check your connection and try again.');
+    }
+    if (!res.ok){
+      throw new Error(`Weather service responded with an error (status ${res.status}).`);
+    }
+    const data = await res.json();
+    if (!data.current){
+      throw new Error('The weather service returned an unexpected response.');
+    }
+    return data;
+  }
+
+  function renderDashboard(place, weather){
+    const c = weather.current;
+    const [label, iconKey] = WEATHER_CODES[c.weather_code] || ['Unknown conditions', 'cloud'];
+
+    document.getElementById('placeName').textContent =
+      [place.name, place.admin1, place.country].filter(Boolean).join(', ');
+    document.getElementById('placeMeta').textContent =
+      `${place.latitude.toFixed(2)}°, ${place.longitude.toFixed(2)}°  ·  ${weather.timezone}`;
+
+    document.getElementById('tempBig').innerHTML = `${Math.round(c.temperature_2m)}<span class="temp-unit">°C</span>`;
+    document.getElementById('condLabel').textContent = label;
+    document.getElementById('feelsLike').textContent = `Feels like ${Math.round(c.apparent_temperature)}°C`;
+    document.getElementById('heroIcon').innerHTML = iconSVG(iconKey);
+
+    document.getElementById('humidityVal').innerHTML = `${c.relative_humidity_2m} <span>%</span>`;
+    document.getElementById('humiditySub').textContent =
+      c.relative_humidity_2m > 70 ? 'Humid' : c.relative_humidity_2m < 30 ? 'Dry air' : 'Comfortable';
+
+    document.getElementById('windVal').innerHTML = `${Math.round(c.wind_speed_10m)} <span>km/h</span>`;
+    document.getElementById('windDir').textContent = `${degToCompass(c.wind_direction_10m)} · ${Math.round(c.wind_direction_10m)}°`;
+    document.getElementById('windArrow').setAttribute('transform', `rotate(${c.wind_direction_10m} 29 29)`);
+
+    document.getElementById('pressureVal').innerHTML = `${Math.round(c.surface_pressure)} <span>hPa</span>`;
+    document.getElementById('pressureSub').textContent =
+      c.surface_pressure < 1000 ? 'Low pressure' : c.surface_pressure > 1025 ? 'High pressure' : 'Steady';
+
+    document.getElementById('precipVal').innerHTML = `${c.precipitation} <span>mm</span>`;
+    document.getElementById('precipSub').textContent = c.precipitation > 0 ? 'Currently falling' : 'None right now';
+
+    const updated = new Date(c.time);
+    document.getElementById('lastUpdated').textContent =
+      `Last reading: ${updated.toLocaleString('en-US', { hour: '2-digit', minute:'2-digit', day:'numeric', month:'short' })}`;
+
+    emptyState.style.display = 'none';
+    dashboard.classList.add('visible');
+  }
+
+  async function searchCity(city){
+    if (!city || !city.trim()) return;
+    setLoadingUI(true);
+    setStatus('loading', `Tuning in to stations near "${city}"…`);
+    try {
+      const place = await geocodeCity(city.trim());
+      const weather = await fetchWeather(place.latitude, place.longitude);
+      renderDashboard(place, weather);
+      setStatus(null);
+    } catch (err) {
+      setStatus('error', err.message || 'Something went wrong fetching that station.');
+    } finally {
+      setLoadingUI(false);
+    }
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    searchCity(input.value);
+  });
+
+  hintRow.addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    input.value = chip.dataset.city;
+    searchCity(chip.dataset.city);
+  });
+
+  // Load a default station on first visit
+  searchCity('New Delhi');
+})();
+</script>
+</body>
+</html>
